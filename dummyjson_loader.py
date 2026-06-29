@@ -1,96 +1,71 @@
-import json
-from datetime import datetime
-from typing import Any
-from urllib.request import Request, urlopen
+"""
+dummyjson_loader.py - Загрузка данных из DummyJSON API
+"""
 
-from sqlalchemy import select
+import requests
 from sqlalchemy.orm import Session
-
 from models import Brand, Category, Product, Review
 
-DUMMYJSON_PRODUCTS_URL = "https://dummyjson.com/products?limit=0"
 
-def fetch_products(url: str = DUMMYJSON_PRODUCTS_URL) -> list[dict[str, Any]]:
-    request = Request(
-        url,
-        headers={
-            "Accept": "application/json",
-            "User-Agent": "Mozilla/5.0 SQLAlchemyHomework/1.0",
-        },
-    )
-    with urlopen(request, timeout=30) as response:
-        payload = json.loads(response.read().decode("utf-8"))
-    return payload.get("products", [])
-
-def get_or_create(session: Session, model, **values):
-    instance = session.scalar(select(model).filter_by(**values))
+def get_or_create(session: Session, model, **kwargs):
+    """
+    Вспомогательная функция: найти объект или создать новый,
+    чтобы избежать дублей в базе данных
+    """
+    instance = session.query(model).filter_by(**kwargs).first()
     if instance:
         return instance
+    else:
+        instance = model(**kwargs)
+        session.add(instance)
+        session.commit()
+        return instance
 
-    instance = model(values)
-    session.add(instance)
-    session.flush()
-    return instance
 
-def parse_datetime(value: str | None) -> datetime | None:
-    if not value:
-        return None
+def populate_from_dummyjson(session: Session, limit: int = 5):
+    """
+    Загружает данные из DummyJSON API и сохраняет в базу данных
 
-    normalized = value.replace("Z", "+00:00")
-    return datetime.fromisoformat(normalized).replace(tzinfo=None)
+    Args:
+        session: SQLAlchemy сессия
+        limit: количество товаров для загрузки (по умолчанию 5)
+    """
+    print(f"Загрузка {limit} товаров с DummyJSON...")
 
-def save_products(session: Session, products_data: list[dict[str, Any]]) -> None:
-    for item in products_data:
-        category = None
-        if item.get("category"):
-            category = get_or_create(
-                session,
-                Category,
-                name=item["category"],
-                slug=item["category"].lower().replace(" ", "-"),
-            )
+    # Получаем товары из API
+    response = requests.get(f'https://dummyjson.com/products?limit={limit}')
+    # Проверка на ошибки HTTP
+    response.raise_for_status()
+    data = response.json()['products']
 
-        brand = None
-        if item.get("brand"):
-            brand = get_or_create(session, Brand, name=item["brand"])
+    for item in data:
+        # В DummyJSON бренд может отсутствовать, подставим 'Unknown'
+        brand_name = item.get('brand') or 'Unknown'
+        category_name = item.get('category', 'general')
 
-        product = session.scalar(
-            select(Product).where(Product.dummyjson_id == item["id"])
+        # Находим или создаем бренд и категорию
+        brand = get_or_create(session, Brand, name=brand_name)
+        category = get_or_create(session, Category, name=category_name)
+
+        # Создаем товар (используем add)
+        product = Product(
+            title=item['title'],
+            description=item['description'],
+            price=item['price'],
+            brand_id=brand.id,
+            category_id=category.id
         )
-        if product is None:
-            product = Product()
-            session.add(product)
+        session.add(product)
+        session.commit()  # Коммитим, чтобы получить ID товара для отзывов
 
-        product.dummyjson_id = item["id"]
-        product.title = item.get("title", "")
-        product.description = item.get("description")
-        product.price = item.get("price")
-        product.discount_percentage = item.get("discountPercentage")
-        product.rating = item.get("rating")
-        product.stock = item.get("stock")
-        product.category = category
-        product.brand = brand
-
-        product.reviews.clear()
-        for review_data in item.get("reviews", []):
-            product.reviews.append(
-                Review(
-                    {
-                        "rating": review_data.get("rating"),
-                        "comment": review_data.get("comment"),
-                        "reviewer_name": review_data.get("reviewerName"),
-                        "reviewer_email": review_data.get("reviewerEmail"),
-                        "date": parse_datetime(review_data.get("date")),
-                    }
-                )
+        # Добавляем отзывы (в DummyJSON они идут внутри объекта товара)
+        for rev_data in item.get('reviews', []):
+            review = Review(
+                rating=rev_data['rating'],
+                comment=rev_data['comment'],
+                product_id=product.id
             )
+            session.add(review)
+        session.commit()
 
-def load_dummyjson(session: Session) -> int:
-    products = fetch_products()
-    save_products(session, products)
-    return len(products)
-
-
-
-
-
+    print(f"✅ Успешно загружено {len(data)} товаров!\n")
