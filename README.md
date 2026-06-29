@@ -9,13 +9,13 @@
 ===============================================
 СТРУКТУРА ПРОЕКТА:
 
-db.py                  - Настройка подключения к БД (engine, Base, Session)
-models.py              - Модели базы данных (Brand, Category, Product, Review)
+- db.py                  - Настройка подключения к БД (engine, Base, Session)
+- models.py              - Модели базы данных (Brand, Category, Product, Review)
                          и DTO объекты (ProductDTO)
-dummyjson_loader.py    - Функции для загрузки данных из DummyJSON API
-main.py                - Точка входа в приложение
-requirements.txt       - Зависимости проекта
-dummyjson_shop.db      - SQLite база данных (создается автоматически)
+- dummyjson_loader.py    - Функции для загрузки данных из DummyJSON API
+- main.py                - Точка входа в приложение
+- requirements.txt       - Зависимости проекта
+- dummyjson_shop.db      - SQLite база данных (создается автоматически)
 
 ===============================================
 УСТАНОВКА И ЗАПУСК:
